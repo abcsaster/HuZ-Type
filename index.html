@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="hu" class="h-full bg-slate-950">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magyar ZType - Űr-gépírási Játék</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            overflow: hidden;
+        }
+        .font-mono-code {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+        /* Custom Glowing & Key Animations */
+        .glow-text {
+            text-shadow: 0 0 12px rgba(0, 240, 255, 0.6), 0 0 24px rgba(0, 240, 255, 0.3);
+        }
+        .glow-box {
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.25), inset 0 0 15px rgba(0, 240, 255, 0.1);
+        }
+        .key-active {
+            transform: translateY(2px) scale(0.96);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5) !important;
+        }
+        .key-hint-target {
+            animation: pulse-target 1.2s infinite alternate;
+        }
+        @keyframes pulse-target {
+            0% { box-shadow: 0 0 4px #00f0ff, inset 0 0 4px #00f0ff; transform: scale(1); }
+            100% { box-shadow: 0 0 16px #00f0ff, inset 0 0 12px #00f0ff; transform: scale(1.05); }
+        }
+        .key-hint-mod {
+            animation: pulse-mod 1.2s infinite alternate;
+        }
+        @keyframes pulse-mod {
+            0% { opacity: 0.7; transform: scale(1); }
+            100% { opacity: 1; transform: scale(1.06); }
+        }
+    </style>
+</head>
+<body class="h-full text-slate-100 flex flex-col bg-slate-950 select-none antialiased overflow-hidden">
+
+    <!-- Top Game Navigation / HUD -->
+    <header class="w-full bg-slate-900/90 border-b border-slate-800 backdrop-blur-md px-4 py-2 flex items-center justify-between z-20 shadow-lg">
+        <div class="flex items-center space-x-3">
+            <div class="flex items-center space-x-2">
+                <span class="text-xl">🚀</span>
+                <span class="font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 text-lg md:text-xl tracking-wider">MAGYAR ZTYPE</span>
+            </div>
+            <span id="hud-level-badge" class="hidden md:inline-block px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 text-xs font-bold font-mono-code">
+                Szint: 1 (Kezdő) [0/50]
+            </span>
+        </div>
+
+        <!-- Live Game Stats -->
+        <div id="game-stats" class="hidden flex items-center space-x-4 font-mono-code text-sm">
+            <div class="flex items-center space-x-1 bg-slate-950/80 px-3 py-1 rounded-lg border border-slate-800">
+                <span class="text-slate-400 text-xs">PONT:</span>
+                <span id="hud-score" class="text-cyan-400 font-bold text-base">0000</span>
+            </div>
+            <div class="flex items-center space-x-1 bg-slate-950/80 px-3 py-1 rounded-lg border border-slate-800">
+                <span class="text-slate-400 text-xs">WPM:</span>
+                <span id="hud-wpm" class="text-amber-400 font-bold text-base">0</span>
+            </div>
+            <div class="flex items-center space-x-1 bg-slate-950/80 px-3 py-1 rounded-lg border border-slate-800">
+                <span class="text-slate-400 text-xs">PONTOSSÁG:</span>
+                <span id="hud-accuracy" class="text-emerald-400 font-bold text-base">100%</span>
+            </div>
+            <div class="flex items-center space-x-1 bg-slate-950/80 px-3 py-1 rounded-lg border border-slate-800">
+                <span class="text-xs text-rose-400">ÉLET:</span>
+                <span id="hud-lives" class="text-rose-500 font-bold text-base tracking-widest">♥♥♥</span>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <button id="btn-sound" onclick="toggleAudio()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-slate-700 text-xs font-bold flex items-center space-x-1">
+                <span id="sound-icon">🔊</span>
+                <span class="hidden sm:inline" id="sound-text">Hang BE</span>
+            </button>
+            <button id="btn-pause" onclick="togglePause()" class="hidden p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-slate-700 text-xs font-bold">
+                ⏸ Szünet
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace (Canvas + Overlays) -->
+    <main class="relative flex-1 w-full h-full overflow-hidden flex flex-col justify-between items-center">
+
+        <!-- Space Game Canvas -->
+        <canvas id="game-canvas" class="absolute inset-0 w-full h-full z-0 bg-slate-950"></canvas>
+
+        <!-- Live Keyboard Modifier Helper Banner (Floating HUD) -->
+        <div id="live-key-helper" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-slate-900/90 border border-slate-700/80 rounded-2xl px-5 py-2.5 shadow-2xl backdrop-blur-md flex items-center space-x-4 font-mono-code transition-all duration-200">
+            <div class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Következő karakter:</div>
+            <div id="helper-char-display" class="text-2xl font-black text-cyan-400 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">A</div>
+            <div class="h-6 w-px bg-slate-800"></div>
+            <div class="flex items-center space-x-2 text-xs">
+                <span class="text-slate-400">Billentyűkombináció:</span>
+                <span id="helper-combo-badge" class="px-3 py-1 rounded-md font-bold text-white bg-slate-800 border border-slate-700 shadow">
+                    [A]
+                </span>
+            </div>
+        </div>
+
+        <!-- Start / Main Menu Screen Overlay -->
+        <div id="screen-menu" class="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
+            <div class="max-w-xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl text-center relative overflow-hidden">
+                <div class="absolute -top-12 -left-12 w-36 h-36 bg-cyan-500/10 rounded-full blur-2xl"></div>
+                <div class="absolute -bottom-12 -right-12 w-36 h-36 bg-purple-500/10 rounded-full blur-2xl"></div>
+
+                <div class="inline-flex items-center justify-center p-3 rounded-2xl bg-slate-800 border border-slate-700 mb-4 shadow-inner">
+                    <span class="text-4xl">🚀</span>
+                </div>
+                <h1 class="text-3xl md:text-4xl font-black text-slate-100 tracking-tight mb-2">MAGYAR <span class="text-cyan-400 glow-text">ZTYPE</span></h1>
+                <p class="text-slate-400 text-sm mb-6">Pusztítsd el az érkező űrhajókat a rajtuk lévő magyar szavak és szimbólumok pontos begépelésével!</p>
+
+                <!-- Level Selector Buttons -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5 text-left">
+                    <!-- Level 1 -->
+                    <button onclick="selectLevel(1)" id="lvl-btn-1" class="level-select-btn group p-4 rounded-xl bg-cyan-950/30 border-2 border-cyan-500 ring-2 ring-cyan-500/50 transition-all duration-200 hover:scale-[1.02] shadow-md">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold text-cyan-400 font-mono-code">SZINT 1</span>
+                            <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">Kezdő (50 szó)</span>
+                        </div>
+                        <div class="font-bold text-slate-200 group-hover:text-cyan-300">Rövid Magyar Szavak</div>
+                        <p class="text-xs text-slate-400 mt-1">Lassú tempó, könnyű 2-4 betűs ékezetes alapszavak (pl. <span class="text-slate-300">fa, ló, kő, ház, víz</span>).</p>
+                    </button>
+
+                    <!-- Level 2 -->
+                    <button onclick="selectLevel(2)" id="lvl-btn-2" class="level-select-btn group p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-blue-500 transition-all duration-200 hover:scale-[1.02] shadow-md">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold text-blue-400 font-mono-code">SZINT 2</span>
+                            <span class="text-xs px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">Haladó (50 szó)</span>
+                        </div>
+                        <div class="font-bold text-slate-200 group-hover:text-blue-300">Nagybetűk & Shift (⇧)</div>
+                        <p class="text-xs text-slate-400 mt-1">Tulajdonnevek és városnevek <span class="text-blue-400 font-mono">[⇧ Shift]</span> használatával (pl. <span class="text-slate-300">Budapest, Balaton</span>).</p>
+                    </button>
+
+                    <!-- Level 3 -->
+                    <button onclick="selectLevel(3)" id="lvl-btn-3" class="level-select-btn group p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-amber-500 transition-all duration-200 hover:scale-[1.02] shadow-md">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold text-amber-400 font-mono-code">SZINT 3</span>
+                            <span class="text-xs px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">Mester (50 szó)</span>
+                        </div>
+                        <div class="font-bold text-slate-200 group-hover:text-amber-300">Felső Számsor & Shift Jelek</div>
+                        <p class="text-xs text-slate-400 mt-1">Kérdőjelek, felkiáltójelek, zárójelek <span class="text-blue-400 font-mono">[⇧ Shift + 1-9]</span> (pl. <span class="text-slate-300">Szia!, 100%, (kód)</span>).</p>
+                    </button>
+
+                    <!-- Level 4 -->
+                    <button onclick="selectLevel(4)" id="lvl-btn-4" class="level-select-btn group p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-purple-500 transition-all duration-200 hover:scale-[1.02] shadow-md">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold text-purple-400 font-mono-code">SZINT 4</span>
+                            <span class="text-xs px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">Profi (200 szó)</span>
+                        </div>
+                        <div class="font-bold text-slate-200 group-hover:text-purple-300">AltGr Kódolás & Szimbólumok</div>
+                        <p class="text-xs text-slate-400 mt-1">Rövid AltGr jelektől a komplett kódokig <span class="text-purple-400 font-mono">[AltGr]</span> (200 találat a győzelemig!).</p>
+                    </button>
+                </div>
+
+                <!-- Keyboard Legend / Color Guide -->
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-wrap items-center justify-center gap-3 text-xs mb-5">
+                    <span class="text-slate-400 font-semibold">Módosítók színkódjai:</span>
+                    <span class="px-2 py-0.5 rounded bg-blue-600 text-white font-bold">⇧ Shift</span>
+                    <span class="px-2 py-0.5 rounded bg-purple-600 text-white font-bold">AltGr</span>
+                    <span class="px-2 py-0.5 rounded bg-emerald-600 text-white font-bold">Alt</span>
+                    <span class="px-2 py-0.5 rounded bg-rose-600 text-white font-bold">Ctrl</span>
+                </div>
+
+                <!-- Main Start Game Button -->
+                <button id="btn-main-start" onclick="startGame(selectedLevel)" class="w-full py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-lg md:text-xl tracking-wider uppercase transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-cyan-500/25 flex items-center justify-center space-x-3">
+                    <span>🚀 JÁTÉK INDÍTÁSA</span>
+                    <span id="start-btn-level-text" class="text-xs px-2.5 py-1 rounded-full bg-slate-950/40 text-cyan-200 font-mono-code font-bold">1. Szint (Kezdő)</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Level Up Animated Notification Banner -->
+        <div id="banner-levelup" class="hidden absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 bg-slate-900/95 border-2 border-cyan-400 rounded-2xl p-6 shadow-2xl backdrop-blur-xl text-center max-w-md w-11/12 animate-bounce">
+            <div class="text-4xl mb-1">⚡</div>
+            <h2 class="text-2xl font-black text-cyan-400 font-mono-code uppercase tracking-wider mb-1">SZINTLÉPÉS!</h2>
+            <div id="levelup-text" class="text-slate-200 font-bold text-base mb-2">Gratulálunk! Következő Szint: 2</div>
+            <p id="levelup-subtext" class="text-slate-400 text-xs">Készülj fel a Shift gombok és a nagybetűk használatára!</p>
+        </div>
+
+        <!-- Game Over & Victory Overlay Screen -->
+        <div id="screen-gameover" class="hidden absolute inset-0 z-30 flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4">
+            <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl text-center">
+                <div id="gameover-icon" class="text-5xl mb-3">💀</div>
+                <h2 id="gameover-title-glow" class="text-3xl font-black text-rose-500 mb-1">JÁTÉK VÉGE</h2>
+                <p id="gameover-subtitle" class="text-slate-400 text-sm mb-6">Az űrhajók áttörték a védelmi vonalat.</p>
+
+                <!-- End Game Stats -->
+                <div class="grid grid-cols-2 gap-3 mb-6 font-mono-code">
+                    <div class="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                        <div class="text-xs text-slate-400">Pontszám</div>
+                        <div id="go-score" class="text-2xl font-bold text-cyan-400">0</div>
+                    </div>
+                    <div class="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                        <div class="text-xs text-slate-400">Gépírási Sebesség</div>
+                        <div id="go-wpm" class="text-2xl font-bold text-amber-400">0 WPM</div>
+                    </div>
+                    <div class="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                        <div class="text-xs text-slate-400">Pontosság</div>
+                        <div id="go-accuracy" class="text-2xl font-bold text-emerald-400">0%</div>
+                    </div>
+                    <div class="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                        <div class="text-xs text-slate-400">Megsemmisített / Idő</div>
+                        <div id="go-destroyed" class="text-xl font-bold text-purple-400">0 szó</div>
+                    </div>
+                </div>
+
+                <div class="flex space-x-3">
+                    <button onclick="restartCurrentLevel()" class="flex-1 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition-all shadow-lg">
+                        Újrapróbálkozás
+                    </button>
+                    <button onclick="returnToMenu()" class="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold border border-slate-700">
+                        Főmenü
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interactive Hungarian QWERTZ Keyboard Guide -->
+        <div id="keyboard-container" class="w-full max-w-4xl px-2 pb-3 z-10 font-mono-code select-none">
+            <div class="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-2 md:p-3 shadow-2xl backdrop-blur-md">
+                
+                <!-- Row 0: Top Numbers & Hungarian Accents -->
+                <div class="flex gap-1 mb-1 justify-center">
+                    <div data-key="0" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>ö</span><span class="text-[9px] text-slate-500">0</span></div>
+                    <div data-key="1" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>'</span><span class="text-[9px] text-slate-500">1</span></div>
+                    <div data-key="2" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>"</span><span class="text-[9px] text-slate-500">2</span></div>
+                    <div data-key="3" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>+</span><span class="text-[9px] text-slate-500">3</span></div>
+                    <div data-key="4" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>!</span><span class="text-[9px] text-slate-500">4</span></div>
+                    <div data-key="5" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>%</span><span class="text-[9px] text-slate-500">5</span></div>
+                    <div data-key="6" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>/</span><span class="text-[9px] text-slate-500">6</span></div>
+                    <div data-key="7" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>=</span><span class="text-[9px] text-slate-500">7</span></div>
+                    <div data-key="8" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>(</span><span class="text-[9px] text-slate-500">8</span></div>
+                    <div data-key="9" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300"><span>)</span><span class="text-[9px] text-slate-500">9</span></div>
+                    <div data-key="ö" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300">Ö</div>
+                    <div data-key="ü" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300">Ü</div>
+                    <div data-key="ó" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex flex-col items-center justify-center text-[10px] md:text-xs font-bold text-slate-300">Ó</div>
+                </div>
+
+                <!-- Row 1: QWERTZ -->
+                <div class="flex gap-1 mb-1 justify-center">
+                    <div data-key="q" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Q</div>
+                    <div data-key="w" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">W</div>
+                    <div data-key="e" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">E</div>
+                    <div data-key="r" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">R</div>
+                    <div data-key="t" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">T</div>
+                    <div data-key="z" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Z</div>
+                    <div data-key="u" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">U</div>
+                    <div data-key="i" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">I</div>
+                    <div data-key="o" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">O</div>
+                    <div data-key="p" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">P</div>
+                    <div data-key="ő" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Ő</div>
+                    <div data-key="ú" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Ú</div>
+                </div>
+
+                <!-- Row 2: ASDFGHJKL -->
+                <div class="flex gap-1 mb-1 justify-center">
+                    <div data-key="a" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">A</div>
+                    <div data-key="s" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">S</div>
+                    <div data-key="d" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">D</div>
+                    <div data-key="f" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">F</div>
+                    <div data-key="g" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">G</div>
+                    <div data-key="h" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">H</div>
+                    <div data-key="j" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">J</div>
+                    <div data-key="k" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">K</div>
+                    <div data-key="l" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">L</div>
+                    <div data-key="é" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">É</div>
+                    <div data-key="á" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Á</div>
+                    <div data-key="ű" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Ű</div>
+                </div>
+
+                <!-- Row 3: Shift + YXCVBNM -->
+                <div class="flex gap-1 mb-1 justify-center">
+                    <!-- Left Shift with Arrow Icon -->
+                    <div data-key="ShiftLeft" class="key-cap w-[14%] h-9 md:h-11 rounded-lg bg-blue-600 text-white border border-blue-500 flex items-center justify-center text-[10px] md:text-xs font-extrabold shadow-md">
+                        ⇧ SHIFT
+                    </div>
+                    <div data-key="y" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Y</div>
+                    <div data-key="x" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">X</div>
+                    <div data-key="c" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">C</div>
+                    <div data-key="v" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">V</div>
+                    <div data-key="b" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">B</div>
+                    <div data-key="n" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">N</div>
+                    <div data-key="m" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">M</div>
+                    <div data-key="í" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">Í</div>
+                    <div data-key="," class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">,</div>
+                    <div data-key="." class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">.</div>
+                    <div data-key="-" class="key-cap flex-1 h-9 md:h-11 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-xs md:text-sm font-bold text-slate-200">-</div>
+                    <!-- Right Shift with Arrow Icon -->
+                    <div data-key="ShiftRight" class="key-cap w-[14%] h-9 md:h-11 rounded-lg bg-blue-600 text-white border border-blue-500 flex items-center justify-center text-[10px] md:text-xs font-extrabold shadow-md">
+                        ⇧ SHIFT
+                    </div>
+                </div>
+
+                <!-- Row 4: Modifiers (Ctrl, Alt, Space, AltGr) -->
+                <div class="flex gap-1 justify-center">
+                    <div data-key="ControlLeft" class="key-cap w-[12%] h-8 md:h-9 rounded-lg bg-rose-600 text-white border border-rose-500 flex items-center justify-center text-[10px] md:text-xs font-bold shadow">
+                        Ctrl
+                    </div>
+                    <div data-key="AltLeft" class="key-cap w-[10%] h-8 md:h-9 rounded-lg bg-emerald-600 text-white border border-emerald-500 flex items-center justify-center text-[10px] md:text-xs font-bold shadow">
+                        Alt
+                    </div>
+                    <div data-key=" " class="key-cap flex-1 h-8 md:h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-xs text-slate-500 uppercase tracking-widest font-semibold">
+                        SZÓKÖZ
+                    </div>
+                    <div data-key="AltGraph" class="key-cap w-[14%] h-8 md:h-9 rounded-lg bg-purple-600 text-white border border-purple-500 flex items-center justify-center text-[10px] md:text-xs font-extrabold shadow">
+                        AltGr
+                    </div>
+                    <div data-key="ControlRight" class="key-cap w-[12%] h-8 md:h-9 rounded-lg bg-rose-600 text-white border border-rose-500 flex items-center justify-center text-[10px] md:text-xs font-bold shadow">
+                        Ctrl
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Game Logic & Sound Synthesizer Script -->
+    <script>
+        // Sound Synthesizer using Web Audio API
+        class SoundController {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioCtx();
+                }
+            }
+
+            playLaser() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(880, now);
+                osc.frequency.exponentialRampToValueAtTime(110, now + 0.08);
+
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            }
+
+            playExplosion() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(30, now + 0.25);
+
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.25);
+            }
+
+            playError() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(120, now);
+
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.15);
+            }
+
+            playDamage() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(80, now);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+
+            playLevelUp() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+                    gain.gain.setValueAtTime(0.2, now + idx * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.3);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now + idx * 0.08);
+                    osc.stop(now + idx * 0.08 + 0.3);
+                });
+            }
+
+            playVictoryFanfare() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const sequence = [
+                    { freq: 523.25, time: 0, duration: 0.15 },
+                    { freq: 659.25, time: 0.12, duration: 0.15 },
+                    { freq: 783.99, time: 0.24, duration: 0.15 },
+                    { freq: 1046.50, time: 0.36, duration: 0.6 },
+                    { freq: 880.00, time: 0.65, duration: 0.2 },
+                    { freq: 1046.50, time: 0.85, duration: 0.9 }
+                ];
+
+                sequence.forEach(note => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(note.freq, now + note.time);
+
+                    gain.gain.setValueAtTime(0.25, now + note.time);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + note.time + note.duration);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now + note.time);
+                    osc.stop(now + note.time + note.duration);
+                });
+            }
+        }
+
+        const audio = new SoundController();
+
+        // Level Word Data
+        const LEVEL_WORDS = {
+            1: [ // Kezdő - Rövid 2-4 betűs magyar alapszavak
+                'fa', 'ló', 'tó', 'fű', 'kő', 'só', 'út', 'ég', 'jó', 'új', 
+                'hal', 'tej', 'pék', 'sün', 'bor', 'orr', 'fül', 'gép', 'kód', 'ház', 
+                'víz', 'nap', 'hold', 'zöld', 'kék', 'óra', 'autó', 'hajó', 'könyv', 'szék'
+            ],
+            2: { // Haladó - Shift Caps
+                easy: ['Anna', 'Béla', 'Duna', 'Pécs', 'Gábor', 'Zoltán', 'Eger', 'Márk', 'Éva', 'László'],
+                medium: ['Budapest', 'Balaton', 'Tisza', 'Kecskemét', 'Szeged', 'Debrecen', 'Sopron', 'Miskolc'],
+                hard: ['Széchenyi', 'Kossuth', 'Petőfi', 'Arany', 'Hunyadi', 'Rákóczi', 'Vörösmarty']
+            },
+            3: { // Mester - Shift Symbols
+                easy: ['Mi?', 'Ki?', 'Jó!', 'A+', '(1)', '100%', '#1', 'Sőt!', 'Ha!', 'De:'],
+                medium: ['Szia!', 'Igen!', 'Hol vagy?', '(kód)', '1. hely!', 'Figyelem:', '100/100'],
+                hard: ['Hogy vagy?', '(nagyon fontos!)', '100%-os siker!', 'Végpont: /start', 'Hibaszám: #01']
+            },
+            4: { // Profi - AltGr Symbols & Code (200 kills)
+                easy: ['@a', '#1', '{x}', '[1]', '$1', '<y>', 'a&b', 'x|y', '~x', '#ok', '[z]', 'a@b', '<a/>'],
+                medium: ['user@mail', '#kod1', '{elem}', '[tomb]', '<div/>', '100$', 'x[0]', 'func()', 'a=>b', 'val=1'],
+                hard: ['user@domain.hu', 'Array[index]', '<script>', '{status:200}', 'http://site.hu', '#magyar_ztype'],
+                expert: ['if(x && y){return;}', 'user_name@szechenyi.hu', '#include<stdio.h>', 'export default class']
+            }
+        };
+
+        function getTargetKills(level) {
+            return level === 4 ? 200 : 50;
+        }
+
+        // Global Game Variables
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = 'MENU';
+        let currentLevel = 1;
+        let selectedLevel = 1;
+        let levelKills = 0;
+
+        function selectLevel(lvl) {
+            selectedLevel = lvl;
+            const levelNames = {
+                1: '1. Szint (Kezdő)',
+                2: '2. Szint (Haladó)',
+                3: '3. Szint (Mester)',
+                4: '4. Szint (Profi)'
+            };
+            
+            const btnText = document.getElementById('start-btn-level-text');
+            if (btnText) btnText.innerText = levelNames[lvl];
+
+            document.querySelectorAll('.level-select-btn').forEach((btn, idx) => {
+                if (idx + 1 === lvl) {
+                    btn.classList.add('border-cyan-500', 'bg-cyan-950/30', 'ring-2', 'ring-cyan-500/50');
+                    btn.classList.remove('border-slate-800', 'bg-slate-950/80');
+                } else {
+                    btn.classList.remove('border-cyan-500', 'bg-cyan-950/30', 'ring-2', 'ring-cyan-500/50');
+                    btn.classList.add('border-slate-800', 'bg-slate-950/80');
+                }
+            });
+        }
+
+        function resizeCanvas() {
+            if (canvas) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Starfield Particles
+        const stars = Array.from({ length: 80 }, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: Math.random() * 2 + 0.5,
+            speed: Math.random() * 0.8 + 0.2
+        }));
+
+        // Particle Class for Explosions
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color || '#00f0ff';
+                this.radius = Math.random() * 3 + 1;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 4 + 1;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.alpha = 1;
+                this.decay = Math.random() * 0.03 + 0.015;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.alpha -= this.decay;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // Fireworks Particle Class
+        class VictoryParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 8 + 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed - 2;
+                this.gravity = 0.1;
+                this.radius = Math.random() * 4 + 2;
+                const colors = ['#00f0ff', '#ff007f', '#ffea00', '#10b981', '#a855f7', '#3b82f6', '#ffffff'];
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                this.alpha = 1;
+                this.decay = Math.random() * 0.015 + 0.008;
+                this.isConfetti = Math.random() > 0.4;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.vRot = (Math.random() - 0.5) * 0.2;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += this.gravity;
+                this.alpha -= this.decay;
+                this.rotation += this.vRot;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 8;
+                if (this.isConfetti) {
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(this.rotation);
+                    ctx.fillRect(-this.radius, -this.radius / 2, this.radius * 2, this.radius);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function createVictoryBurst() {
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * (canvas.height * 0.6);
+            for (let i = 0; i < 40; i++) {
+                fireworks.push(new VictoryParticle(x, y));
+            }
+        }
+
+        // Laser Beam Class
+        class Laser {
+            constructor(startX, startY, targetX, targetY) {
+                this.startX = startX;
+                this.startY = startY;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                this.alpha = 1;
+            }
+            update() {
+                this.alpha -= 0.1;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.strokeStyle = '#00f0ff';
+                ctx.lineWidth = 3;
+                ctx.shadowColor = '#00f0ff';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.moveTo(this.startX, this.startY);
+                ctx.lineTo(this.targetX, this.targetY);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        // Enemy Spacecraft Class
+        class Enemy {
+            constructor(word) {
+                this.word = word;
+                this.typedIndex = 0;
+                this.width = Math.max(110, word.length * 15 + 24);
+                this.height = 42;
+                this.x = Math.random() * (canvas.width - this.width - 60) + 30;
+                this.y = -45;
+
+                // Speed tuning
+                const targetKills = getTargetKills(currentLevel);
+                const progressRatio = levelKills / targetKills;
+                this.speed = 0.35 + (progressRatio * 0.55);
+
+                this.radius = 20;
+                this.thrusterPulse = Math.random() * Math.PI * 2;
+            }
+
+            update() {
+                this.y += this.speed;
+                this.thrusterPulse += 0.1;
+            }
+
+            draw() {
+                const isLocked = (lockedEnemy === this);
+                ctx.save();
+                ctx.translate(this.x, this.y);
+
+                const mainColor = isLocked ? '#00f0ff' : '#f43f5e';
+                const bodyBg = isLocked ? '#0c4a6e' : '#1e1b4b';
+                const shipWidth = this.width;
+                const shipHeight = 28;
+
+                // Thruster plume top (falling down)
+                const flameHeight = Math.sin(this.thrusterPulse) * 3 + 8;
+                ctx.fillStyle = isLocked ? '#38bdf8' : '#fb7185';
+                ctx.beginPath();
+                ctx.moveTo(-10, -shipHeight / 2);
+                ctx.lineTo(10, -shipHeight / 2);
+                ctx.lineTo(0, -shipHeight / 2 - flameHeight);
+                ctx.closePath();
+                ctx.fill();
+
+                // Alien Warship Delta Wings Hull
+                ctx.fillStyle = bodyBg;
+                ctx.strokeStyle = mainColor;
+                ctx.lineWidth = isLocked ? 2.5 : 1.5;
+                if (isLocked) {
+                    ctx.shadowColor = '#00f0ff';
+                    ctx.shadowBlur = 15;
+                } else {
+                    ctx.shadowColor = '#f43f5e';
+                    ctx.shadowBlur = 6;
+                }
+
+                ctx.beginPath();
+                // Nose pointing down towards player
+                ctx.moveTo(0, shipHeight / 2 + 6);
+                ctx.lineTo(shipWidth / 2, -shipHeight / 2 + 4);
+                ctx.lineTo(shipWidth / 2 - 8, -shipHeight / 2);
+                ctx.lineTo(0, -shipHeight / 2 + 8);
+                ctx.lineTo(-shipWidth / 2 + 8, -shipHeight / 2);
+                ctx.lineTo(-shipWidth / 2, -shipHeight / 2 + 4);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Cockpit / Core Glow
+                ctx.fillStyle = mainColor;
+                ctx.beginPath();
+                ctx.arc(0, 0, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Locked Target Reticle
+                if (isLocked) {
+                    ctx.strokeStyle = '#00f0ff';
+                    ctx.lineWidth = 1.5;
+                    const r = shipWidth / 2 + 10;
+                    
+                    // Corner reticles
+                    ctx.beginPath();
+                    ctx.moveTo(-r, -10); ctx.lineTo(-r, -r/2); ctx.lineTo(-r/2, -r/2);
+                    ctx.moveTo(r, -10); ctx.lineTo(r, -r/2); ctx.lineTo(r/2, -r/2);
+                    ctx.moveTo(-r, 10); ctx.lineTo(-r, r/2); ctx.lineTo(-r/2, r/2);
+                    ctx.moveTo(r, 10); ctx.lineTo(r, r/2); ctx.lineTo(r/2, r/2);
+                    ctx.stroke();
+                }
+
+                // Render Word Tag Box Below Ship
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                ctx.strokeStyle = isLocked ? '#00f0ff' : '#475569';
+                ctx.lineWidth = 1;
+                ctx.shadowBlur = 0;
+                
+                const tagHeight = 26;
+                const tagY = shipHeight / 2 + 10;
+                ctx.beginPath();
+                ctx.roundRect(-shipWidth / 2, tagY, shipWidth, tagHeight, 6);
+                ctx.fill();
+                ctx.stroke();
+
+                // Render Word Text Inside Tag
+                ctx.font = 'bold 15px "JetBrains Mono", monospace';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+
+                const typedPart = this.word.substring(0, this.typedIndex);
+                const activeChar = this.word.substring(this.typedIndex, this.typedIndex + 1);
+                const remainingPart = this.word.substring(this.typedIndex + 1);
+
+                const fullWidth = ctx.measureText(this.word).width;
+                let startX = -fullWidth / 2;
+                const textY = tagY + tagHeight / 2;
+
+                // Typed part (Emerald Green)
+                if (typedPart) {
+                    ctx.fillStyle = '#10b981';
+                    ctx.fillText(typedPart, startX, textY);
+                    startX += ctx.measureText(typedPart).width;
+                }
+
+                // Active next character (Cyan / Yellow Glow)
+                if (activeChar) {
+                    ctx.fillStyle = '#00f0ff';
+                    ctx.shadowColor = '#00f0ff';
+                    ctx.shadowBlur = 8;
+                    ctx.fillText(activeChar, startX, textY);
+                    startX += ctx.measureText(activeChar).width;
+                }
+
+                // Remaining part (Slate Light)
+                if (remainingPart) {
+                    ctx.fillStyle = '#e2e8f0';
+                    ctx.shadowBlur = 0;
+                    ctx.fillText(remainingPart, startX, textY);
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // Helper Map for Character to Key & Modifier Combo
+        function getKeyCombination(char) {
+            if (!char) return null;
+            const code = char.charCodeAt(0);
+
+            // Shift mapping logic for Hungarian Layout
+            const isUpper = (char !== char.toLowerCase()) && char.toLowerCase() !== char.toUpperCase();
+
+            // Shift Symbols (Top row)
+            const shiftSymbols = {
+                "'": { key: '1', mod: 'Shift' },
+                '"': { key: '2', mod: 'Shift' },
+                '+': { key: '3', mod: 'Shift' },
+                '!': { key: '4', mod: 'Shift' },
+                '%': { key: '5', mod: 'Shift' },
+                '/': { key: '6', mod: 'Shift' },
+                '=': { key: '7', mod: 'Shift' },
+                '(': { key: '8', mod: 'Shift' },
+                ')': { key: '9', mod: 'Shift' },
+                '?': { key: ',', mod: 'Shift' },
+                ':': { key: '.', mod: 'Shift' },
+                '_': { key: '-', mod: 'Shift' }
+            };
+
+            // AltGr Symbols
+            const altGrSymbols = {
+                '@': { key: 'v', mod: 'AltGr' },
+                '#': { key: 'x', mod: 'AltGr' },
+                '$': { key: 'e', mod: 'AltGr' },
+                '&': { key: 'c', mod: 'AltGr' },
+                '{': { key: 'b', mod: 'AltGr' },
+                '}': { key: 'n', mod: 'AltGr' },
+                '[': { key: 'f', mod: 'AltGr' },
+                ']': { key: 'g', mod: 'AltGr' },
+                '<': { key: 'a', mod: 'AltGr' },
+                '>': { key: 's', mod: 'AltGr' },
+                '|': { key: 'w', mod: 'AltGr' },
+                '~': { key: '1', mod: 'AltGr' },
+                '\\': { key: 'q', mod: 'AltGr' }
+            };
+
+            if (altGrSymbols[char]) {
+                return altGrSymbols[char];
+            }
+            if (shiftSymbols[char]) {
+                return shiftSymbols[char];
+            }
+            if (isUpper) {
+                return { key: char.toLowerCase(), mod: 'Shift' };
+            }
+            return { key: char.toLowerCase(), mod: null };
+        }
+
+        // Update Keyboard Visual Hints & Live Banner
+        function updateKeyboardHints() {
+            // Clear previous highlights
+            document.querySelectorAll('.key-cap').forEach(el => {
+                el.classList.remove('key-hint-target', 'key-hint-mod', 'bg-cyan-500', 'text-slate-950');
+            });
+
+            const helperBanner = document.getElementById('live-key-helper');
+            if (!lockedEnemy && enemies.length === 0) {
+                helperBanner.classList.add('hidden');
+                return;
+            }
+
+            const target = lockedEnemy || enemies[0];
+            if (!target) return;
+
+            const nextChar = target.word[target.typedIndex];
+            if (!nextChar) return;
+
+            helperBanner.classList.remove('hidden');
+            document.getElementById('helper-char-display').innerText = nextChar;
+
+            const combo = getKeyCombination(nextChar);
+            const comboBadge = document.getElementById('helper-combo-badge');
+
+            if (combo) {
+                if (combo.mod === 'Shift') {
+                    comboBadge.className = 'px-3 py-1 rounded-md font-bold text-white bg-blue-600 border border-blue-400 shadow';
+                    comboBadge.innerText = `⇧ Shift + [ ${combo.key.toUpperCase()} ]`;
+                    
+                    document.querySelectorAll('[data-key="ShiftLeft"], [data-key="ShiftRight"]').forEach(el => el.classList.add('key-hint-mod'));
+                } else if (combo.mod === 'AltGr') {
+                    comboBadge.className = 'px-3 py-1 rounded-md font-bold text-white bg-purple-600 border border-purple-400 shadow';
+                    comboBadge.innerText = `AltGr + [ ${combo.key.toUpperCase()} ]`;
+                    
+                    document.querySelector('[data-key="AltGraph"]')?.classList.add('key-hint-mod');
+                } else {
+                    comboBadge.className = 'px-3 py-1 rounded-md font-bold text-cyan-300 bg-slate-800 border border-slate-700 shadow';
+                    comboBadge.innerText = `[ ${combo.key.toUpperCase()} ]`;
+                }
+
+                // Highlight main key on layout
+                const keyCap = document.querySelector(`[data-key="${combo.key.toLowerCase()}"]`);
+                if (keyCap) {
+                    keyCap.classList.add('key-hint-target');
+                }
+            }
+        }
+
+        // Spawn Enemy Generator
+        function spawnEnemy() {
+            let wordList;
+            const levelData = LEVEL_WORDS[currentLevel];
+
+            if (Array.isArray(levelData)) {
+                wordList = levelData;
+            } else {
+                if (currentLevel === 4) {
+                    if (levelKills < 40) wordList = levelData.easy;
+                    else if (levelKills < 90) wordList = levelData.medium;
+                    else if (levelKills < 150) wordList = levelData.hard;
+                    else wordList = levelData.expert;
+                } else {
+                    if (levelKills < 15) wordList = levelData.easy;
+                    else if (levelKills < 30) wordList = levelData.medium;
+                    else wordList = levelData.hard;
+                }
+            }
+
+            const randomWord = wordList[Math.floor(Math.random() * wordList.length)];
+            enemies.push(new Enemy(randomWord));
+        }
+
+        // Trigger Level Progression
+        function triggerLevelUp(nextLevel) {
+            gameState = 'LEVELUP';
+            audio.playLevelUp();
+
+            enemies = [];
+            lasers = [];
+            lockedEnemy = null;
+
+            const banner = document.getElementById('banner-levelup');
+            const levelNames = { 2: '2 (Haladó - Shift & Nagybetűk)', 3: '3 (Mester - Shift Szimbólumok)', 4: '4 (Profi - AltGr Kódolás)' };
+            const subTexts = {
+                2: 'Készülj fel a Shift [⇧] nyíl gombra a nagybetűk gépeléséhez!',
+                3: 'Használd a Shift [⇧] kombinációkat a felső számsor jeleihez (!, %, ?, ( ))!',
+                4: '200 találatos kihívás! Használd az [AltGr] gombot a jelekhez (@, #, {, }, [, ]).'
+            };
+
+            document.getElementById('levelup-text').innerText = `Következő Szint: ${levelNames[nextLevel]}`;
+            document.getElementById('levelup-subtext').innerText = subTexts[nextLevel];
+            banner.classList.remove('hidden');
+
+            setTimeout(() => {
+                banner.classList.add('hidden');
+                currentLevel = nextLevel;
+                levelKills = 0;
+                spawnTimer = 0;
+                gameState = 'PLAYING';
+                updateHUD();
+            }, 2600);
+        }
+
+        // Trigger Victory (200 Hits on Level 4)
+        function triggerVictory() {
+            gameState = 'VICTORY';
+            audio.playVictoryFanfare();
+
+            enemies = [];
+            lasers = [];
+            lockedEnemy = null;
+
+            for (let i = 0; i < 6; i++) {
+                setTimeout(createVictoryBurst, i * 250);
+            }
+
+            document.getElementById('gameover-icon').innerText = '🏆';
+            document.getElementById('gameover-title-glow').innerText = 'LEGENDÁS GYŐZELEM!';
+            document.getElementById('gameover-title-glow').className = 'text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 mb-2 glow-text animate-pulse';
+            document.getElementById('gameover-subtitle').innerText = 'Gratulálunk! Mind a 200 Profi AltGr kihívást és a küldetést sikeresen teljesítetted!';
+
+            const elapsedSeconds = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+            const minutes = Math.floor(elapsedSeconds / 60);
+            const seconds = elapsedSeconds % 60;
+            const timeStr = minutes > 0 ? `${minutes} p ${seconds} mp` : `${seconds} mp`;
+
+            const elapsedMinutes = Math.max(0.1, elapsedSeconds / 60);
+            const wpm = Math.round((totalHits / 5) / elapsedMinutes);
+            const accuracy = totalKeystrokes > 0 ? Math.round((totalHits / totalKeystrokes) * 100) : 100;
+
+            document.getElementById('go-score').innerText = score;
+            document.getElementById('go-wpm').innerText = `${wpm} WPM`;
+            document.getElementById('go-accuracy').innerText = `${accuracy}%`;
+            document.getElementById('go-destroyed').innerText = `${totalKills} szó (${timeStr})`;
+
+            document.getElementById('screen-gameover').classList.remove('hidden');
+        }
+
+        // Game Over Trigger
+        function gameOver() {
+            gameState = 'GAMEOVER';
+            audio.playDamage();
+
+            document.getElementById('gameover-icon').innerText = '💀';
+            document.getElementById('gameover-title-glow').innerText = 'JÁTÉK VÉGE';
+            document.getElementById('gameover-title-glow').className = 'text-3xl font-black text-rose-500 mb-1';
+            document.getElementById('gameover-subtitle').innerText = 'Az űrhajók áttörték a védelmi vonalat.';
+
+            const elapsedSeconds = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+            const elapsedMinutes = Math.max(0.1, elapsedSeconds / 60);
+            const wpm = Math.round((totalHits / 5) / elapsedMinutes);
+            const accuracy = totalKeystrokes > 0 ? Math.round((totalHits / totalKeystrokes) * 100) : 100;
+
+            document.getElementById('go-score').innerText = score;
+            document.getElementById('go-wpm').innerText = `${wpm} WPM`;
+            document.getElementById('go-accuracy').innerText = `${accuracy}%`;
+            document.getElementById('go-destroyed').innerText = `${totalKills} szó`;
+
+            document.getElementById('screen-gameover').classList.remove('hidden');
+        }
+
+        // Update HUD Values
+        function updateHUD() {
+            const levelNames = { 1: '1 (Kezdő)', 2: '2 (Haladó)', 3: '3 (Mester)', 4: '4 (Profi)' };
+            const targetKills = getTargetKills(currentLevel);
+            document.getElementById('hud-level-badge').innerText = `Szint: ${levelNames[currentLevel]} [${levelKills}/${targetKills}]`;
+            document.getElementById('hud-score').innerText = score.toString().padStart(4, '0');
+
+            if (startTime) {
+                const elapsedMinutes = Math.max(0.05, (Date.now() - startTime) / 60000);
+                const wpm = Math.round((totalHits / 5) / elapsedMinutes);
+                document.getElementById('hud-wpm').innerText = wpm;
+            }
+
+            const accuracy = totalKeystrokes > 0 ? Math.round((totalHits / totalKeystrokes) * 100) : 100;
+            document.getElementById('hud-accuracy').innerText = `${accuracy}%`;
+
+            let hearts = '';
+            for (let i = 0; i < lives; i++) hearts += '♥';
+            document.getElementById('hud-lives').innerText = hearts || '💀';
+        }
+
+        // Keyboard Handling
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Alt' || e.key === 'Control' || e.key === 'Shift') return;
+
+            // Highlight pressed key visually
+            let keyAttr = e.key.toLowerCase();
+            if (e.code === 'Space') keyAttr = ' ';
+            const keyCap = document.querySelector(`[data-key="${keyAttr}"]`);
+            if (keyCap) {
+                keyCap.classList.add('key-active');
+                setTimeout(() => keyCap.classList.remove('key-active'), 120);
+            }
+
+            if (gameState !== 'PLAYING') return;
+
+            // Prevent unwanted browser shortcuts
+            if (e.key === '/' || e.key === "'" || e.key === 'AltGraph') {
+                e.preventDefault();
+            }
+
+            totalKeystrokes++;
+            const char = e.key;
+
+            if (lockedEnemy) {
+                if (lockedEnemy.word[lockedEnemy.typedIndex] === char) {
+                    // Correct key hit
+                    totalHits++;
+                    audio.playLaser();
+                    lasers.push(new Laser(canvas.width / 2, canvas.height - 40, lockedEnemy.x, lockedEnemy.y));
+
+                    // Particles on hit
+                    for (let i = 0; i < 6; i++) {
+                        particles.push(new Particle(lockedEnemy.x, lockedEnemy.y, '#00f0ff'));
+                    }
+
+                    lockedEnemy.typedIndex++;
+                    score += 10;
+
+                    // Word destroyed!
+                    if (lockedEnemy.typedIndex >= lockedEnemy.word.length) {
+                        audio.playExplosion();
+                        for (let i = 0; i < 16; i++) {
+                            particles.push(new Particle(lockedEnemy.x, lockedEnemy.y, '#10b981'));
+                        }
+                        const idx = enemies.indexOf(lockedEnemy);
+                        if (idx > -1) enemies.splice(idx, 1);
+                        lockedEnemy = null;
+                        score += 50;
+                        levelKills++;
+                        totalKills++;
+
+                        const targetKills = getTargetKills(currentLevel);
+                        if (levelKills >= targetKills) {
+                            if (currentLevel < 4) {
+                                triggerLevelUp(currentLevel + 1);
+                            } else {
+                                triggerVictory();
+                            }
+                        }
+                    }
+                } else {
+                    audio.playError();
+                }
+            } else {
+                // Find matching enemy start letter
+                const target = enemies.find(enemy => enemy.word[0] === char);
+                if (target) {
+                    lockedEnemy = target;
+                    totalHits++;
+                    audio.playLaser();
+                    lasers.push(new Laser(canvas.width / 2, canvas.height - 40, lockedEnemy.x, lockedEnemy.y));
+                    
+                    for (let i = 0; i < 6; i++) {
+                        particles.push(new Particle(lockedEnemy.x, lockedEnemy.y, '#00f0ff'));
+                    }
+
+                    lockedEnemy.typedIndex++;
+                    score += 10;
+
+                    if (lockedEnemy.typedIndex >= lockedEnemy.word.length) {
+                        audio.playExplosion();
+                        for (let i = 0; i < 16; i++) {
+                            particles.push(new Particle(lockedEnemy.x, lockedEnemy.y, '#10b981'));
+                        }
+                        const idx = enemies.indexOf(lockedEnemy);
+                        if (idx > -1) enemies.splice(idx, 1);
+                        lockedEnemy = null;
+                        score += 50;
+                        levelKills++;
+                        totalKills++;
+
+                        const targetKills = getTargetKills(currentLevel);
+                        if (levelKills >= targetKills) {
+                            if (currentLevel < 4) {
+                                triggerLevelUp(currentLevel + 1);
+                            } else {
+                                triggerVictory();
+                            }
+                        }
+                    }
+                } else {
+                    audio.playError();
+                }
+            }
+
+            updateHUD();
+            updateKeyboardHints();
+        });
+
+        // Game Loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameState !== 'PLAYING' && gameState !== 'VICTORY') return;
+
+            // Clear Screen
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Stars
+            ctx.fillStyle = '#ffffff';
+            stars.forEach(star => {
+                star.y += star.speed;
+                if (star.y > canvas.height) star.y = 0;
+                ctx.globalAlpha = Math.random() * 0.5 + 0.3;
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+            ctx.globalAlpha = 1.0;
+
+            // Handle Victory Celebration
+            if (gameState === 'VICTORY') {
+                if (Math.random() < 0.08) createVictoryBurst();
+                for (let i = fireworks.length - 1; i >= 0; i--) {
+                    const p = fireworks[i];
+                    p.update();
+                    p.draw();
+                    if (p.alpha <= 0) fireworks.splice(i, 1);
+                }
+                return;
+            }
+
+            // Spawning Logic
+            const targetKills = getTargetKills(currentLevel);
+            const progressRatio = levelKills / targetKills;
+            spawnInterval = Math.max(120, Math.floor(250 - (progressRatio * 130)));
+
+            spawnTimer++;
+            if (spawnTimer >= spawnInterval) {
+                spawnEnemy();
+                spawnTimer = 0;
+            }
+
+            // Draw Player Starfighter
+            ctx.save();
+            const px = canvas.width / 2;
+            const py = canvas.height - 40;
+            
+            // Engine Thruster Glow Animation
+            const flameLen = Math.random() * 12 + 14;
+            const grad = ctx.createLinearGradient(px, py + 10, px, py + 10 + flameLen);
+            grad.addColorStop(0, '#00f0ff');
+            grad.addColorStop(0.5, '#3b82f6');
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(px - 6, py + 10);
+            ctx.lineTo(px + 6, py + 10);
+            ctx.lineTo(px, py + 10 + flameLen);
+            ctx.closePath();
+            ctx.fill();
+
+            // Wings & Fighter Hull
+            ctx.fillStyle = '#0f172a';
+            ctx.strokeStyle = '#00f0ff';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#00f0ff';
+            ctx.shadowBlur = 12;
+            
+            ctx.beginPath();
+            ctx.moveTo(px, py - 24); // Nose tip
+            ctx.lineTo(px + 18, py + 12); // Right wingtip
+            ctx.lineTo(px + 8, py + 6);
+            ctx.lineTo(px + 6, py + 12); // Right engine base
+            ctx.lineTo(px - 6, py + 12); // Left engine base
+            ctx.lineTo(px - 8, py + 6);
+            ctx.lineTo(px - 18, py + 12); // Left wingtip
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Cockpit Glass
+            ctx.fillStyle = '#38bdf8';
+            ctx.beginPath();
+            ctx.moveTo(px, py - 14);
+            ctx.lineTo(px + 4, py - 2);
+            ctx.lineTo(px - 4, py - 2);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.restore();
+
+            // Update & Draw Lasers
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                lasers[i].update();
+                lasers[i].draw();
+                if (lasers[i].alpha <= 0) lasers.splice(i, 1);
+            }
+
+            // Update & Draw Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].alpha <= 0) particles.splice(i, 1);
+            }
+
+            // Update & Draw Enemies
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                enemy.update();
+                enemy.draw();
+
+                // Enemy Reached Bottom
+                if (enemy.y > canvas.height - 60) {
+                    audio.playDamage();
+                    lives--;
+                    if (enemy === lockedEnemy) lockedEnemy = null;
+                    enemies.splice(i, 1);
+                    updateHUD();
+
+                    if (lives <= 0) {
+                        gameOver();
+                    }
+                }
+            }
+
+            updateKeyboardHints();
+        }
+
+        // Start Game Handler
+        function startGame(level) {
+            audio.init();
+            currentLevel = level;
+            levelKills = 0;
+            totalKills = 0;
+            score = 0;
+            lives = 3;
+            totalHits = 0;
+            totalKeystrokes = 0;
+            startTime = Date.now();
+            enemies = [];
+            particles = [];
+            lasers = [];
+            fireworks = [];
+            lockedEnemy = null;
+            spawnTimer = 0;
+
+            document.getElementById('screen-menu').classList.add('hidden');
+            document.getElementById('screen-gameover').classList.add('hidden');
+            document.getElementById('game-stats').classList.remove('hidden');
+            document.getElementById('btn-pause').classList.remove('hidden');
+
+            gameState = 'PLAYING';
+            updateHUD();
+            spawnEnemy();
+        }
+
+        function restartCurrentLevel() {
+            startGame(currentLevel);
+        }
+
+        function returnToMenu() {
+            gameState = 'MENU';
+            document.getElementById('screen-menu').classList.remove('hidden');
+            document.getElementById('screen-gameover').classList.add('hidden');
+            document.getElementById('game-stats').classList.add('hidden');
+            document.getElementById('btn-pause').classList.add('hidden');
+            document.getElementById('live-key-helper').classList.add('hidden');
+        }
+
+        function toggleAudio() {
+            audio.init();
+            audio.muted = !audio.muted;
+            document.getElementById('sound-icon').innerText = audio.muted ? '🔇' : '🔊';
+            document.getElementById('sound-text').innerText = audio.muted ? 'Néma' : 'Hang BE';
+        }
+
+        function togglePause() {
+            if (gameState === 'PLAYING') {
+                gameState = 'PAUSED';
+                document.getElementById('btn-pause').innerText = '▶ Folytatás';
+            } else if (gameState === 'PAUSED') {
+                gameState = 'PLAYING';
+                document.getElementById('btn-pause').innerText = '⏸ Szünet';
+            }
+        }
+
+        // Start Animation Loop on Load
+        window.onload = () => {
+            animate();
+        };
+    </script>
+</body>
+</html>
